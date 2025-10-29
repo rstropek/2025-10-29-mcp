@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID } from 'node:crypto';
 import cors from 'cors';
+import { SCALEKIT_CONFIG } from './scalekit-config.js';
 
 /**
  * Creates and starts a streamable HTTP server for MCP (Model Context Protocol) communication.
@@ -99,6 +100,104 @@ export function createStreamableHTTPServer(server: McpServer, serverName: string
       serverVersion: serverVersion,
     });
   });
+
+  // Protected Resource Metadata endpoint
+  /**
+   * OAuth 2.0 Protected Resource Metadata endpoint.
+   * 
+   * This is a standardized discovery endpoint defined in RFC 8707 that allows OAuth clients
+   * to automatically discover information about this protected resource (API/service).
+   * 
+   * Purpose:
+   * - Enables MCP clients to discover which authorization servers protect this resource
+   * - Advertises supported OAuth 2.0 features (bearer token methods, scopes, etc.)
+   * - Provides documentation links for developers
+   * - Allows automatic client configuration without manual setup
+   * 
+   * The endpoint must be publicly accessible (no authentication required) to enable discovery.
+   * 
+   * Standard location: /.well-known/oauth-protected-resource
+   * 
+   * References:
+   * - RFC 8707: https://datatracker.ietf.org/doc/html/rfc8707
+   * - OAuth 2.0 Authorization Server Metadata: https://datatracker.ietf.org/doc/html/rfc8414
+   */
+  function handleOAuthProtectedResource(req: express.Request, res: express.Response) {
+    res.json({
+      /**
+       * authorization_servers: Array of authorization server URLs
+       * 
+       * Lists the OAuth 2.0 authorization servers that issue tokens accepted by this resource.
+       * Clients use this to discover where to obtain access tokens.
+       * 
+       * Multiple servers can be listed if the resource accepts tokens from different issuers.
+       * Each URL should point to the authorization server's base URL (not the metadata endpoint).
+       */
+      "authorization_servers": [
+        SCALEKIT_CONFIG.authServer
+      ],
+
+      /**
+       * bearer_methods_supported: Array of bearer token transmission methods
+       * 
+       * Specifies how this resource accepts OAuth 2.0 bearer tokens.
+       * 
+       * Possible values:
+       * - "header": Tokens sent in Authorization: Bearer <token> HTTP header (RFC 6750 Section 2.1)
+       * - "body": Tokens sent in request body parameter (RFC 6750 Section 2.2)
+       * - "query": Tokens sent as URL query parameter (RFC 6750 Section 2.3, not recommended)
+       * 
+       * This resource only supports "header" method for better security:
+       * - Headers are less likely to be logged by proxies/servers
+       * - Headers don't appear in browser history or bookmarks
+       * - Headers are not cached by intermediaries
+       */
+      "bearer_methods_supported": [
+        "header"
+      ],
+
+      /**
+       * resource: Unique identifier for this protected resource
+       * 
+       * A URI that uniquely identifies this resource server. This value:
+       * - Must be a valid URI (typically a URL)
+       * - Is used by clients in the "resource" parameter during token requests (RFC 8707)
+       * - Helps authorization servers issue audience-restricted tokens
+       * - Ensures tokens are bound to this specific resource server
+       * 
+       * Example: When a client requests a token, it includes this resource ID, and the
+       * authorization server includes it in the "aud" (audience) claim of the JWT token.
+       * This prevents token misuse on other resource servers.
+       */
+      "resource": SCALEKIT_CONFIG.resourceId,
+
+      /**
+       * resource_documentation: URL to human-readable documentation
+       */
+      "resource_documentation": `${SCALEKIT_CONFIG.resourceId}/docs`,
+
+      /**
+       * scopes_supported: Array of OAuth 2.0 scopes recognized by this resource
+       * 
+       * Lists all scopes that this resource server understands and enforces.
+       * Scopes define specific permissions/capabilities for access tokens.
+       * 
+       * Clients should:
+       * - Request only the scopes they need (principle of least privilege)
+       * - Include the resource parameter when requesting tokens with these scopes
+       * 
+       * The authorization server may grant a subset of requested scopes based on:
+       * - User consent
+       * - Client's allowed scopes
+       * - Organization policies
+       * 
+       * This resource checks the "scope" claim in the JWT token to authorize requests.
+       */
+      "scopes_supported": SCALEKIT_CONFIG.supportedScopes
+    });
+  }
+  app.get('/.well-known/oauth-protected-resource/mcp', handleOAuthProtectedResource);
+  app.get('/mcp/.well-known/oauth-protected-resource', handleOAuthProtectedResource);
 
   /**
    * Main MCP endpoint handler for JSON-RPC requests.
