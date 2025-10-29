@@ -4,6 +4,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { randomUUID } from 'node:crypto';
 import cors from 'cors';
 import { SCALEKIT_CONFIG } from './scalekit-config.js';
+import { requiredAuthMiddleware } from './auth-middleware.js';
+import { AuthContext, runWithAuthContext } from './auth-context.js';
 
 /**
  * Creates and starts a streamable HTTP server for MCP (Model Context Protocol) communication.
@@ -199,6 +201,8 @@ export function createStreamableHTTPServer(server: McpServer, serverName: string
   app.get('/.well-known/oauth-protected-resource/mcp', handleOAuthProtectedResource);
   app.get('/mcp/.well-known/oauth-protected-resource', handleOAuthProtectedResource);
 
+  app.use('/mcp', requiredAuthMiddleware);
+
   /**
    * Main MCP endpoint handler for JSON-RPC requests.
    * Handles session management and routes requests to appropriate transports.
@@ -246,7 +250,17 @@ export function createStreamableHTTPServer(server: McpServer, serverName: string
       return;
     }
 
-    await transport.handleRequest(req, res, req.body);
+    // Set up authentication context for this request
+    const authContext: AuthContext = {
+      token: req.token,
+      tokenClaims: req.tokenClaims,
+      isAuthenticated: req.isAuthenticated ?? false,
+      sessionId: sessionId,
+    };
+
+    await runWithAuthContext(authContext, async () => {
+      await transport.handleRequest(req, res, req.body);
+    });
   });
 
   /**
@@ -261,9 +275,19 @@ export function createStreamableHTTPServer(server: McpServer, serverName: string
       return;
     }
 
+    // Set up authentication context for this request
+    const authContext: AuthContext = {
+      token: req.token,
+      tokenClaims: req.tokenClaims,
+      isAuthenticated: req.isAuthenticated ?? false,
+      sessionId: sessionId,
+    };
+
     // Get the existing transport and delegate request handling within auth context
     const transport = transports[sessionId];
-    await transport.handleRequest(req, res);
+    await runWithAuthContext(authContext, async () => {
+      await transport.handleRequest(req, res);
+    });
   };
 
   // Handle GET requests for server-to-client notifications via SSE

@@ -4,6 +4,7 @@ import { buildPassword, buildMany, buildPasswordAdvanced, filterPonies } from '.
 import { completable } from '@modelcontextprotocol/sdk/server/completable.js';
 import { loadPoniesFromFile, toOnePerLine } from './lib/ponies.js';
 import { createStreamableHTTPServer } from './lib/streamable-http.js';
+import { getTokenClaims, isAuthenticated } from './lib/auth-context.js';
 
 const server = new McpServer({ name: 'pony-sdk-streamable', version: '0.1.0' });
 
@@ -179,6 +180,40 @@ server.registerTool(
     return {
       content: [{ type: 'text', text: result.result }],
       structuredContent: result,
+    };
+  }
+);
+
+server.registerTool(
+  'get_token_claims',
+  {
+    title: 'Get Token Claims',
+    description: 'Returns the claims from the JWT authentication token for the current request. Requires authentication.',
+    inputSchema: {},
+    outputSchema: {
+      claims: z.record(z.any()).optional(),
+      isAuthenticated: z.boolean(),
+    },
+  },
+  async () => {
+    if (!isAuthenticated()) {
+      return {
+        content: [{ type: 'text', text: 'Not authenticated. No token claims available.' }],
+        structuredContent: {
+          isAuthenticated: false,
+        },
+      };
+    }
+
+    const claims = getTokenClaims();
+    const claimsText = JSON.stringify(claims, null, 2);
+
+    return {
+      content: [{ type: 'text', text: `Token Claims:\n${claimsText}` }],
+      structuredContent: {
+        claims,
+        isAuthenticated: true,
+      },
     };
   }
 );
